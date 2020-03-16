@@ -1,0 +1,23 @@
+cabal-version:       >= 1.10
+name:                netcode-io
+version:             0.0.1.0
+synopsis:            Bindings to the low-level netcode.io library.
+-- description:
+homepage:            http://www.github.com/Mokosha/netcode-io
+bug-reports:         http://www.github.com/Mokosha/netcode-io 
+license:             BSD-3
+license-file:        LICENSE
+author:              Pavel Krajcevski
+maintainer:          krajcevski@gmail.com
+copyright:           Pavel Krajcevski, 2020
+category:            Network
+build-type:          Simple
+extra-source-files:  README.md
+
+library
+  -- exposed-modules:
+  -- other-modules:
+  -- other-extensions:
+  build-depends:       base >=4.12
+  -- hs-source-dirs:
+  default-language:    Haskell2010
