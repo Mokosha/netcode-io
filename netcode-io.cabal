@@ -19,14 +19,16 @@ source-repository head
   location:  https://www.github.com/Mokosha/netcode-io.git
 
 library
-  ghc-options:         -Wall -static -fPIC
+  ghc-options:         -Wall -fPIC
   include-dirs:        netcode.io
   c-sources:           netcode.io/netcode.c
-  cc-options:          -std=c99 -static
-  ld-options:          -static
+  cc-options:          -std=c99
   extra-libraries:     sodium
 
   if os(mingw32)
+    -- To make life easy on windows, we encourage using static libraries where
+    -- possible. That way we don't need to go around copying .dll files.
+    ld-options:        -static
     extra-libraries:   ws2_32
 
   exposed-modules:     Bindings.Netcode.IO

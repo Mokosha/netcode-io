@@ -37,3 +37,11 @@ Your `config.yaml` is located at your `%STACK_ROOT%` directory:
 C:\> stack path --stack-root
 C:\path\to\stack\root
 ```
+
+### OS X
+
+On MacOS, we can install `sodium` simply by using homebrew:
+
+```
+$ brew install libsodium
+```
