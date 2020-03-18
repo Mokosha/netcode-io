@@ -13,6 +13,8 @@ copyright:           Pavel Krajcevski, 2020
 category:            Network
 build-type:          Simple
 extra-source-files:  README.md
+                  ,  netcode.io/netcode.h
+                  ,  netcode.io/netcode.c
 
 source-repository head
   type:      git
@@ -22,7 +24,7 @@ library
   ghc-options:         -Wall -fPIC
   include-dirs:        netcode.io
   c-sources:           netcode.io/netcode.c
-  cc-options:          -std=c99
+  cc-options:          -std=c99 -DNDEBUG
   extra-libraries:     sodium
 
   if os(mingw32)
