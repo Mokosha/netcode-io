@@ -24,7 +24,7 @@ library
   ghc-options:         -Wall -fPIC
   include-dirs:        netcode.io
   c-sources:           netcode.io/netcode.c
-  cc-options:          -std=c99 -DNDEBUG
+  cc-options:          -std=c99 -DNDEBUG -DNETCODE_ENABLE_TESTS=1
   extra-libraries:     sodium
 
   if os(mingw32)

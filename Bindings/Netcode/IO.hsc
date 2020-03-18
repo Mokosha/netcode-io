@@ -159,3 +159,5 @@ import Prelude                ( IO, Eq, Show, Num
 #ccall netcode_random_bytes, Ptr Word8 -> CInt -> IO ()
 #ccall netcode_sleep, CDouble -> IO ()
 #ccall netcode_time, IO CDouble
+
+#ccall netcode_test, IO ()
