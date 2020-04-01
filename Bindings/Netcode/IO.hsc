@@ -55,7 +55,7 @@ import Prelude                ( IO, Eq, Show, Num
 #num NETCODE_ADDRESS_IPV4
 #num NETCODE_ADDRESS_IPV6
 
-#ccall netcode_init, IO ()
+#ccall netcode_init, IO CInt
 #ccall netcode_term, IO ()
 
 #starttype struct netcode_address_t
@@ -72,6 +72,11 @@ import Prelude                ( IO, Eq, Show, Num
 #opaque_t netcode_network_simulator_t
 #opaque_t netcode_client_t
 #opaque_t netcode_server_t
+
+#callback_t state_change_callback_t, Ptr () -> CInt -> CInt -> IO ()
+#callback_t send_loopback_packet_callback_t, Ptr () -> CInt -> Ptr Word8 -> CInt -> Word64 -> IO ()
+#callback_t send_packet_override_t, Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO ()
+#callback_t receive_packet_override_t, Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO CInt
 
 #starttype struct netcode_client_config_t
 #field allocator_context,             Ptr ()
@@ -160,4 +165,5 @@ import Prelude                ( IO, Eq, Show, Num
 #ccall netcode_sleep, CDouble -> IO ()
 #ccall netcode_time, IO CDouble
 
+-- | For testing only.
 #ccall netcode_test, IO ()
