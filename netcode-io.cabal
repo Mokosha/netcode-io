@@ -59,6 +59,32 @@ executable netcode-io-c-unit-tests
   else
     buildable:         False
 
+executable netcode-io-client
+  default-language:    Haskell2010
+  main-is:             Client.hs
+  hs-source-dirs:      examples
+  ghc-options:         -Wall -static -fPIC
+  build-depends:       base > 4
+                     , netcode-io
+
+  if flag(examples)
+    buildable:         True
+  else
+    buildable:         False
+
+executable netcode-io-server
+  default-language:    Haskell2010
+  main-is:             Server.hs
+  hs-source-dirs:      examples
+  ghc-options:         -Wall -static -fPIC
+  build-depends:       base > 4
+                     , netcode-io
+
+  if flag(examples)
+    buildable:         True
+  else
+    buildable:         False
+
 executable netcode-io-clientserver
   default-language:    Haskell2010
   main-is:             ClientServer.hs

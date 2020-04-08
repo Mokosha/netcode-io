@@ -38,6 +38,7 @@ module Netcode.IO (
     , createServer
     , destroyServer
     , startServer
+    , maxNumClients
     , stopServer
     , updateServer
     , isClientConnected
@@ -294,6 +295,9 @@ createServer s (ServerConfig mkConfig) time = alloca $ \serverConfig -> do
 -- connect.
 startServer :: Server -> Int -> IO ()
 startServer (Server s) = c'netcode_server_start s . fromIntegral
+
+maxNumClients :: Num a => a
+maxNumClients = c'NETCODE_MAX_CLIENTS
 
 -- | Stops the server.
 stopServer :: Server -> IO ()
