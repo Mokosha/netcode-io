@@ -75,7 +75,7 @@ main = do
 
         clientState <- Netcode.IO.getClientState client
         when (clientState == Netcode.IO.ClientState'Connected) $
-            withArrayLen (take Netcode.IO.maximumPacketSize [0,1..]) $
+            withArrayLen [0..(Netcode.IO.maximumPacketSize - 1)] $
             Netcode.IO.sendPacketFromClient client
 
         untilM $ do

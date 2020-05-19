@@ -83,12 +83,12 @@ main = do
 
         clientState <- Netcode.IO.getClientState client
         when (clientState == Netcode.IO.ClientState'Connected) $
-            withArrayLen (take Netcode.IO.maximumPacketSize [0,1..]) $
+            withArrayLen [0..(Netcode.IO.maximumPacketSize - 1)] $
             Netcode.IO.sendPacketFromClient client
 
         clientConnected <- Netcode.IO.isClientConnected server 0
         when clientConnected $
-            withArrayLen (take Netcode.IO.maximumPacketSize [0,1..]) $
+            withArrayLen [0..(Netcode.IO.maximumPacketSize - 1)] $
             Netcode.IO.sendPacketFromServer server 0
 
         untilM $ do
@@ -126,15 +126,8 @@ main = do
                 exitSuccess
             else return ()
 
-        clientState' <- Netcode.IO.getClientState client
-        when (any (== clientState') [ Netcode.IO.ClientState'ConnectTokenExpired
-                                    , Netcode.IO.ClientState'InvalidConnectToken
-                                    , Netcode.IO.ClientState'ConnectionTimedOut
-                                    , Netcode.IO.ClientState'ConnectionResponseTimedOut
-                                    , Netcode.IO.ClientState'ConnectionRequestTimedOut
-                                    , Netcode.IO.ClientState'ConnectionDenied
-                                    , Netcode.IO.ClientState'Disconnected
-                                    ]) exitSuccess
+        disconnected <- Netcode.IO.isClientDisconnected client
+        when disconnected exitSuccess
 
         Netcode.IO.sleep 0.016667
 

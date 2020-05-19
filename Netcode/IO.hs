@@ -16,16 +16,21 @@ module Netcode.IO (
     , defaultClientConfig
 
     , Client
+    , maximumUserDataSize
+    , maximumServersPerConnect
     , createClient
     , destroyClient
     , generateClientID
     , connectClient
+    , disconnectClient
     , updateClient
     , sendPacketFromClient
     , receivePacketFromServer
+    , getClientPort
 
     , ClientState(..)
     , getClientState
+    , isClientDisconnected
 
     , generateConnectToken
 
@@ -42,6 +47,11 @@ module Netcode.IO (
     , stopServer
     , updateServer
     , isClientConnected
+    , maxClientsForServer
+    , numConnectedClients
+    , serverIsRunning
+    , serverIsFull
+    , getServerPort
     , sendPacketFromServer
     , disconnectClientFromServer
     , receivePacketFromClient
@@ -54,14 +64,15 @@ module Netcode.IO (
 
 import Bindings.Netcode.IO
 
+import Control.Applicative   (liftA2)
 import Data.Data             (Data)
 import Data.Typeable         (Typeable)
-import Data.Word             (Word8, Word64)
+import Data.Word             (Word8, Word16, Word64)
 import Foreign.C.String      (withCString, peekCString)
 import Foreign.C.Types       (CDouble(..))
 import Foreign.Concurrent    (newForeignPtr)
-import Foreign.ForeignPtr    ( ForeignPtr, mallocForeignPtr, mallocForeignPtrBytes
-                             , withForeignPtr
+import Foreign.ForeignPtr    ( ForeignPtr, mallocForeignPtr
+                             , mallocForeignPtrBytes, withForeignPtr
                              )
 import Foreign.Marshal.Alloc (alloca, allocaBytes)
 import Foreign.Marshal.Array (allocaArray, pokeArray)
@@ -179,10 +190,16 @@ data ClientState
     | ClientState'Connected
     deriving (Eq, Ord, Show, Enum, Bounded)
 
-newtype Client = Client (Ptr C'netcode_client_t)
+newtype Client = Client (Ptr C'netcode_client_t) deriving (Show)
 newtype ClientConfig =
     ClientConfig (Ptr C'netcode_client_config_t ->
                     IO (Ptr C'netcode_client_config_t))
+
+maximumUserDataSize :: Num a => a
+maximumUserDataSize = c'NETCODE_USER_DATA_BYTES
+
+maximumServersPerConnect :: Num a => a
+maximumServersPerConnect = c'NETCODE_MAX_SERVERS_PER_CONNECT
 
 defaultClientConfig :: ClientConfig
 defaultClientConfig = ClientConfig $ \clientConfig -> do
@@ -207,6 +224,9 @@ connectClient :: Client -> ConnectToken -> IO ()
 connectClient (Client c) (ConnectToken ctPtr) =
     withForeignPtr ctPtr (c'netcode_client_connect c)
 
+disconnectClient :: Client -> IO ()
+disconnectClient (Client c) = c'netcode_client_disconnect c
+
 updateClient :: Client -> Double -> IO ()
 updateClient (Client c) = c'netcode_client_update c . CDouble
 
@@ -229,6 +249,10 @@ getClientState (Client c) = do
         [] -> fail "Unrecognized client state!"
         ((_, r) : _) -> return r
 
+isClientDisconnected :: Client -> IO Bool
+isClientDisconnected (Client c) =
+    (<= c'NETCODE_CLIENT_STATE_CONNECTED) <$> c'netcode_client_state c
+
 sendPacketFromClient :: Client -> Int -> Ptr Word8 -> IO ()
 sendPacketFromClient (Client c) pktSz pktMem =
     let pktSize = min c'NETCODE_MAX_PACKET_SIZE (fromIntegral pktSz)
@@ -250,7 +274,10 @@ receivePacketFromServer (Client c) =
                        <*> (fromIntegral <$> peek pktSzPtr)
                        <*> newForeignPtr packetMem (c'netcode_client_free_packet c (castPtr packetMem))
 
-newtype Server = Server (Ptr C'netcode_server_t)
+getClientPort :: Client -> IO Word16
+getClientPort (Client c) = c'netcode_client_get_port c
+
+newtype Server = Server (Ptr C'netcode_server_t) deriving (Show)
 newtype ServerConfig = 
     ServerConfig (Ptr C'netcode_server_config_t ->
                     IO (Ptr C'netcode_server_config_t))
@@ -312,6 +339,25 @@ updateServer (Server s) = c'netcode_server_update s . CDouble
 isClientConnected :: Server -> Int -> IO Bool
 isClientConnected (Server s) =
     fmap (/= 0) . c'netcode_server_client_connected s . fromIntegral
+
+maxClientsForServer :: Server -> IO Int
+maxClientsForServer (Server s) =
+    fromIntegral <$> c'netcode_server_max_clients s
+
+numConnectedClients :: Server -> IO Int
+numConnectedClients (Server s) =
+    fromIntegral <$> c'netcode_server_num_connected_clients s
+
+serverIsRunning :: Server -> IO Bool
+serverIsRunning (Server s) = (/= 0) <$> c'netcode_server_running s
+
+serverIsFull :: Server -> IO Bool
+serverIsFull (Server s) =
+    liftA2 (==) (c'netcode_server_num_connected_clients s)
+                (c'netcode_server_max_clients s)
+
+getServerPort :: Server -> IO Word16
+getServerPort (Server s) = c'netcode_server_get_port s
 
 disconnectClientFromServer :: Server -> Int -> IO ()
 disconnectClientFromServer (Server s) =

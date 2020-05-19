@@ -97,3 +97,16 @@ executable netcode-io-clientserver
     buildable:         True
   else
     buildable:         False
+
+executable netcode-io-soak
+  default-language:    Haskell2010
+  main-is:             Soak.hs
+  hs-source-dirs:      examples
+  ghc-options:         -Wall -static -fPIC
+  build-depends:       base > 4
+                     , netcode-io
+
+  if flag(examples)
+    buildable:         True
+  else
+    buildable:         False

@@ -58,7 +58,7 @@ main = do
 
         clientConnected <- Netcode.IO.isClientConnected server 0
         when clientConnected $
-            withArrayLen (take Netcode.IO.maximumPacketSize [0,1..]) $
+            withArrayLen [0..(Netcode.IO.maximumPacketSize - 1)] $
             Netcode.IO.sendPacketFromServer server 0
 
         forM_ [0..(Netcode.IO.maxNumClients - 1)] $ \client -> untilM $ do
