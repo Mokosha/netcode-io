@@ -251,7 +251,7 @@ getClientState (Client c) = do
 
 isClientDisconnected :: Client -> IO Bool
 isClientDisconnected (Client c) =
-    (<= c'NETCODE_CLIENT_STATE_CONNECTED) <$> c'netcode_client_state c
+    (<= c'NETCODE_CLIENT_STATE_DISCONNECTED) <$> c'netcode_client_state c
 
 sendPacketFromClient :: Client -> Int -> Ptr Word8 -> IO ()
 sendPacketFromClient (Client c) pktSz pktMem =

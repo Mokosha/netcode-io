@@ -4,7 +4,7 @@ module Main (main) where
 --------------------------------------------------------------------------------
 
 import Control.Exception (try, AsyncException(..))
-import Control.Monad (forM, forM_, foldM, filterM, when)
+import Control.Monad (forM_, foldM, filterM, when)
 import Data.Bifunctor (second)
 import Data.Bool (bool)
 import Data.Function (on)
@@ -15,6 +15,7 @@ import Data.Word (Word8, Word64)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import System.Environment (getArgs)
+import System.IO (hSetBuffering, stdin, BufferMode(..))
 
 import qualified Netcode.IO as Netcode
 
@@ -69,6 +70,14 @@ getNextInt (RandomInts ints) = do
     writeIORef ints is
     return i
 
+filterRand :: RandomInts -> Int -> [a] -> IO [a]
+filterRand ints modVal = (map snd <$>)
+                        . filterM (fmap ((== 0) . (`mod` modVal)) . fst)
+                        . zip (repeat $ getNextInt ints)
+
+whenRandMod :: RandomInts -> Int -> IO () -> IO ()
+whenRandMod ints modVal = whenM ((== 0) . (`mod` modVal) <$> getNextInt ints)
+
 --------------------------------------------------------------------------------
 
 gPrivateKey :: [Word8]
@@ -102,7 +111,7 @@ gConnectTokenTimeout = 5
 
 -------------------------------------------------------------------------------
 whenM :: Monad m => m Bool -> m () -> m ()
-whenM c = (c >>=) . bool (return ())
+whenM c p = do { b <- c; when b p }
 
 untilM :: Monad m => m Bool -> m ()
 untilM p = p >>= bool (untilM p) (return ())
@@ -127,15 +136,6 @@ shutdownSoak (Soak clients servers) = do
 
     Netcode.terminate
 
-filterRand :: RandomInts -> Int -> [a] -> IO [a]
-filterRand ints modVal = fmap (map snd)
-                       . filterM (fmap ((== 0) . (`mod` modVal)) . fst)
-                       . zip (repeat $ getNextInt ints)
-
-whenRandMod :: RandomInts -> Int -> IO () -> IO ()
-whenRandMod ints modVal =
-    whenM (((== 0) . (`mod` modVal)) <$> (getNextInt ints))
-
 decodePacket :: Maybe Netcode.Packet -> IO Bool
 decodePacket Nothing = return True
 decodePacket (Just pkt) =
@@ -147,7 +147,6 @@ decodePacket (Just pkt) =
 
 iterateSoak :: RandomInts -> IORef Soak -> Double -> IO ()
 iterateSoak ints sr t = do
-    putStrLn $ "Iter: " <> show t
     (Soak clients servers) <- readIORef sr
     let serverConfig =
             Netcode.setPrivateKey gPrivateKey $
@@ -190,6 +189,7 @@ iterateSoak ints sr t = do
              >>= foldM killClient clients'
 
     forM_ servers'' $ \s -> do
+        _ <- getNextInt ints
         whenRandMod ints 10 $
             whenM (not <$> Netcode.serverIsRunning s) $ do
                 numClients <- (`mod` Netcode.maxNumClients) <$> getNextInt ints
@@ -218,7 +218,8 @@ iterateSoak ints sr t = do
         Netcode.updateServer s t
 
     forM_ clients'' $ \c -> do
-        whenM (Netcode.isClientDisconnected c) $ do
+        _ <- getNextInt ints
+        whenRandMod ints 10 $ whenM (Netcode.isClientDisconnected c) $ do
             clientID <- Netcode.generateClientID
             userData <-
                 mapM (fmap fromIntegral)
@@ -228,12 +229,14 @@ iterateSoak ints sr t = do
                 filterM (Netcode.serverIsRunning . snd) (active servers'')
 
             let maxServers = Netcode.maximumServersPerConnect
-                serverIDs = take maxServers $ map fst connectServers
-            serverAddrs <- forM serverIDs $ \i -> do
-                let addr = "127.0.0.1:" <> show (gServerBasePort + i)
-                return (addr, addr)
+                mkAddrPair i = 
+                    let addr = "127.0.0.1:" <> show (gServerBasePort + i)
+                     in (addr, addr)
+                serverAddrs = take maxServers $
+                              map (mkAddrPair . fst) connectServers
 
-            when (not $ null serverAddrs) $ do
+            when (not $ null serverAddrs) $
+                Netcode.connectClient c =<<
                 Netcode.generateConnectToken serverAddrs
                                              gConnectTokenExpiry 
                                              gConnectTokenTimeout
@@ -241,7 +244,6 @@ iterateSoak ints sr t = do
                                              gProtocolID
                                              gPrivateKey
                                              userData
-                    >>= Netcode.connectClient c
 
         let isConnected = (== Netcode.ClientState'Connected)
         whenRandMod ints 100 $
@@ -263,7 +265,7 @@ iterateSoak ints sr t = do
 
 main :: IO ()
 main = do
-
+    hSetBuffering stdin LineBuffering
     args <- getArgs
     let numIters :: Maybe Int
         numIters = case length args of
