@@ -36,7 +36,11 @@ main = do
     Netcode.IO.logLevel Netcode.IO.LogLevel'Info
 
     putStrLn "[client]"
-    client <- Netcode.IO.createClient "0.0.0.0" Netcode.IO.defaultClientConfig 0.0
+    let stateChangeCallback old new =
+            putStrLn $ "Old state: " <> show old <> " new state: " <> show new
+        clientConfig = Netcode.IO.setClientStateChangeCallback stateChangeCallback
+                     $ Netcode.IO.defaultClientConfig
+    client <- Netcode.IO.createClient "0.0.0.0" clientConfig 0.0
 
     args <- getArgs
     let serverAddr = case length args of

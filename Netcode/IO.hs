@@ -13,7 +13,12 @@ module Netcode.IO (
     , maximumPacketSize
 
     , ClientConfig
+    , ClientStateChangeCallback
+    , SendPacketOverride
+    , ReceivePacketOverride
     , defaultClientConfig
+    , setClientStateChangeCallback, clearClientStateChangeCallback
+    , setSendReceiveOverrides, clearSendReceiveOverrides
 
     , Client
     , maximumUserDataSize
@@ -69,16 +74,25 @@ import Data.Data             (Data)
 import Data.Typeable         (Typeable)
 import Data.Word             (Word8, Word16, Word64)
 import Foreign.C.String      (withCString, peekCString)
-import Foreign.C.Types       (CDouble(..))
+import Foreign.C.Types       (CDouble(..), CInt)
 import Foreign.Concurrent    (newForeignPtr)
-import Foreign.ForeignPtr    ( ForeignPtr, mallocForeignPtr
+import Foreign.ForeignPtr    ( ForeignPtr, newForeignPtr_, mallocForeignPtr
                              , mallocForeignPtrBytes, withForeignPtr
                              )
 import Foreign.Marshal.Alloc (alloca, allocaBytes)
 import Foreign.Marshal.Array (allocaArray, pokeArray)
-import Foreign.Ptr           (Ptr, nullPtr, castPtr)
+import Foreign.Ptr           ( Ptr, nullPtr, castPtr
+                             , FunPtr, nullFunPtr, freeHaskellFunPtr
+                             )
 import Foreign.Storable      (peek, poke, sizeOf, pokeElemOff)
 import GHC.Generics          (Generic)
+
+--------------------------------------------------------------------------------
+
+freeNullFunPtr :: FunPtr a -> IO ()
+freeNullFunPtr x
+    | x == nullFunPtr = return ()
+    | otherwise       = freeHaskellFunPtr x
 
 --------------------------------------------------------------------------------
 
@@ -190,10 +204,54 @@ data ClientState
     | ClientState'Connected
     deriving (Eq, Ord, Show, Enum, Bounded)
 
-newtype Client = Client (Ptr C'netcode_client_t) deriving (Show)
-newtype ClientConfig =
-    ClientConfig (Ptr C'netcode_client_config_t ->
-                    IO (Ptr C'netcode_client_config_t))
+_rawClientState :: ClientState -> CInt
+_rawClientState ClientState'ConnectTokenExpired        = c'NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED
+_rawClientState ClientState'InvalidConnectToken        = c'NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN
+_rawClientState ClientState'ConnectionTimedOut         = c'NETCODE_CLIENT_STATE_CONNECTION_TIMED_OUT
+_rawClientState ClientState'ConnectionResponseTimedOut = c'NETCODE_CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT
+_rawClientState ClientState'ConnectionRequestTimedOut  = c'NETCODE_CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT
+_rawClientState ClientState'ConnectionDenied           = c'NETCODE_CLIENT_STATE_CONNECTION_DENIED
+_rawClientState ClientState'Disconnected               = c'NETCODE_CLIENT_STATE_DISCONNECTED
+_rawClientState ClientState'SendingConnectionRequest   = c'NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST
+_rawClientState ClientState'SendingConnectionResponse  = c'NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE
+_rawClientState ClientState'Connected                  = c'NETCODE_CLIENT_STATE_CONNECTED
+
+typedClientState :: CInt -> ClientState
+typedClientState raw
+  | raw == c'NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED         = ClientState'ConnectTokenExpired
+  | raw == c'NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN         = ClientState'InvalidConnectToken
+  | raw == c'NETCODE_CLIENT_STATE_CONNECTION_TIMED_OUT          = ClientState'ConnectionTimedOut
+  | raw == c'NETCODE_CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT = ClientState'ConnectionResponseTimedOut
+  | raw == c'NETCODE_CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT  = ClientState'ConnectionRequestTimedOut
+  | raw == c'NETCODE_CLIENT_STATE_CONNECTION_DENIED             = ClientState'ConnectionDenied
+  | raw == c'NETCODE_CLIENT_STATE_DISCONNECTED                  = ClientState'Disconnected
+  | raw == c'NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST    = ClientState'SendingConnectionRequest
+  | raw == c'NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE   = ClientState'SendingConnectionResponse
+  | raw == c'NETCODE_CLIENT_STATE_CONNECTED                     = ClientState'Connected
+  | otherwise = error "Unrecognized client state value"
+
+data Client = Client 
+  { clientPtr :: Ptr C'netcode_client_t
+  , clientCallbacks :: ClientCallbacks
+  } deriving (Show)
+
+data ClientCallbacks = ClientCallbacks
+  { clientStateChange
+      :: FunPtr (Ptr () -> CInt -> CInt -> IO ())
+  , clientSendPacketOverride
+      :: FunPtr (Ptr () -> Ptr C'netcode_address_t -> Ptr Word8 -> CInt -> IO ())
+  , clientReceivePacketOverride
+      :: FunPtr (Ptr () -> Ptr C'netcode_address_t -> Ptr Word8 -> CInt -> IO CInt)
+  } deriving (Show)
+
+defaultClientCallbacks :: ClientCallbacks
+defaultClientCallbacks = ClientCallbacks nullFunPtr nullFunPtr nullFunPtr
+
+newtype ClientConfig = ClientConfig
+  (   Ptr C'netcode_client_config_t
+   -> ClientCallbacks
+   -> IO (Ptr C'netcode_client_config_t, ClientCallbacks)
+  )
 
 maximumUserDataSize :: Num a => a
 maximumUserDataSize = c'NETCODE_USER_DATA_BYTES
@@ -202,59 +260,120 @@ maximumServersPerConnect :: Num a => a
 maximumServersPerConnect = c'NETCODE_MAX_SERVERS_PER_CONNECT
 
 defaultClientConfig :: ClientConfig
-defaultClientConfig = ClientConfig $ \clientConfig -> do
+defaultClientConfig = ClientConfig $ \clientConfig cbs -> do
     c'netcode_default_client_config clientConfig
-    return clientConfig
+    return (clientConfig, cbs)
+
+type ClientStateChangeCallback = ClientState -> ClientState -> IO ()
+
+setClientStateChangeCallback :: ClientStateChangeCallback
+                             -> ClientConfig -> ClientConfig
+setClientStateChangeCallback cb (ClientConfig mkConfig) =
+    ClientConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ clientStateChange callbacks
+        fPtr <- mk'state_change_callback_t $ \_ oldSt newSt ->
+            cb (typedClientState oldSt) (typedClientState newSt)
+        config <- peek configPtr
+        poke configPtr $
+            config { c'netcode_client_config_t'state_change_callback = fPtr }
+        return (configPtr, callbacks { clientStateChange = fPtr })
+
+clearClientStateChangeCallback :: ClientConfig -> ClientConfig
+clearClientStateChangeCallback (ClientConfig mkConfig) =
+    ClientConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ clientStateChange callbacks
+        config <- peek configPtr
+        poke configPtr $
+            config { c'netcode_client_config_t'state_change_callback = nullFunPtr }
+        return (configPtr, callbacks { clientStateChange = nullFunPtr })
+
+type SendPacketOverride = Address -> Ptr Word8 -> CInt -> IO ()
+type ReceivePacketOverride = Address -> Ptr Word8 -> CInt -> IO CInt
+
+setSendReceiveOverrides :: SendPacketOverride
+                        -> ReceivePacketOverride
+                        -> ClientConfig -> ClientConfig
+setSendReceiveOverrides sendFn recvFn (ClientConfig mkConfig) =
+    ClientConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ clientSendPacketOverride callbacks
+        freeNullFunPtr $ clientReceivePacketOverride callbacks
+        config <- peek configPtr
+        sendOverride <- mk'send_packet_override_t $ \_ aptr pkt pktSize -> do
+            addr <- Address <$> newForeignPtr_ aptr
+            sendFn addr pkt pktSize
+        recvOverride <- mk'receive_packet_override_t $
+            \_ aptr pkt pktSize -> do
+                addr <- Address <$> newForeignPtr_ aptr
+                recvFn addr pkt pktSize
+        poke configPtr $ config
+            { c'netcode_client_config_t'send_packet_override = sendOverride
+            , c'netcode_client_config_t'receive_packet_override = recvOverride
+            , c'netcode_client_config_t'override_send_and_receive = 1
+            }
+        let newcbs = callbacks
+              { clientSendPacketOverride = sendOverride
+              , clientReceivePacketOverride = recvOverride
+              }
+        return (configPtr, newcbs)
+
+clearSendReceiveOverrides :: ClientConfig -> ClientConfig
+clearSendReceiveOverrides (ClientConfig mkConfig) =
+    ClientConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ clientSendPacketOverride callbacks
+        freeNullFunPtr $ clientReceivePacketOverride callbacks
+        config <- peek configPtr
+        poke configPtr $ config
+            { c'netcode_client_config_t'send_packet_override = nullFunPtr
+            , c'netcode_client_config_t'receive_packet_override = nullFunPtr
+            , c'netcode_client_config_t'override_send_and_receive = 0
+            }
+        let newcbs = callbacks
+              { clientSendPacketOverride = nullFunPtr
+              , clientReceivePacketOverride = nullFunPtr
+              }
+        return (configPtr, newcbs)
 
 -- | Creates a client at the given address using the provided config. Throws an
 -- IOException on failure.
 createClient :: String -> ClientConfig -> Double -> IO Client
 createClient s (ClientConfig mkConfig) time = alloca $ \clientConfig -> do
-    config <- mkConfig clientConfig
-    clientPtr <- withCString s $ \cs ->
+    (config, callbacks) <- mkConfig clientConfig defaultClientCallbacks
+    ptr <- withCString s $ \cs ->
         c'netcode_client_create cs config (CDouble time)
-    if clientPtr == nullPtr
+    if ptr == nullPtr
         then fail "Failed to create client!"
-        else return (Client clientPtr)
+        else return (Client ptr callbacks)
 
 destroyClient :: Client -> IO ()
-destroyClient (Client c) = c'netcode_client_destroy c
+destroyClient (Client c cbs) = do
+    c'netcode_client_destroy c
+    freeNullFunPtr $ clientStateChange cbs
+    freeNullFunPtr $ clientSendPacketOverride cbs
+    freeNullFunPtr $ clientReceivePacketOverride cbs
 
 connectClient :: Client -> ConnectToken -> IO ()
-connectClient (Client c) (ConnectToken ctPtr) =
+connectClient (Client c _) (ConnectToken ctPtr) =
     withForeignPtr ctPtr (c'netcode_client_connect c)
 
 disconnectClient :: Client -> IO ()
-disconnectClient (Client c) = c'netcode_client_disconnect c
+disconnectClient (Client c _) = c'netcode_client_disconnect c
 
 updateClient :: Client -> Double -> IO ()
-updateClient (Client c) = c'netcode_client_update c . CDouble
+updateClient (Client c _) = c'netcode_client_update c . CDouble
 
 getClientState :: Client -> IO ClientState
-getClientState (Client c) = do
-    stateNum <- c'netcode_client_state c
-    let mapping = 
-            [ (c'NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED         , ClientState'ConnectTokenExpired)
-            , (c'NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN         , ClientState'InvalidConnectToken)
-            , (c'NETCODE_CLIENT_STATE_CONNECTION_TIMED_OUT          , ClientState'ConnectionTimedOut)
-            , (c'NETCODE_CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT , ClientState'ConnectionResponseTimedOut)
-            , (c'NETCODE_CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT  , ClientState'ConnectionRequestTimedOut)
-            , (c'NETCODE_CLIENT_STATE_CONNECTION_DENIED             , ClientState'ConnectionDenied)
-            , (c'NETCODE_CLIENT_STATE_DISCONNECTED                  , ClientState'Disconnected)
-            , (c'NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST    , ClientState'SendingConnectionRequest)
-            , (c'NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE   , ClientState'SendingConnectionResponse)
-            , (c'NETCODE_CLIENT_STATE_CONNECTED                     , ClientState'Connected)
-            ]
-    case filter ((== stateNum) . fst) mapping of
-        [] -> fail "Unrecognized client state!"
-        ((_, r) : _) -> return r
+getClientState (Client c _) = typedClientState <$> c'netcode_client_state c
 
 isClientDisconnected :: Client -> IO Bool
-isClientDisconnected (Client c) =
+isClientDisconnected (Client c _) =
     (<= c'NETCODE_CLIENT_STATE_DISCONNECTED) <$> c'netcode_client_state c
 
 sendPacketFromClient :: Client -> Int -> Ptr Word8 -> IO ()
-sendPacketFromClient (Client c) pktSz pktMem =
+sendPacketFromClient (Client c _) pktSz pktMem =
     let pktSize = min c'NETCODE_MAX_PACKET_SIZE (fromIntegral pktSz)
      in do
         if pktSz > c'NETCODE_MAX_PACKET_SIZE
@@ -263,7 +382,7 @@ sendPacketFromClient (Client c) pktSz pktMem =
         c'netcode_client_send_packet c pktMem pktSize
 
 receivePacketFromServer :: Client -> IO (Maybe Packet)
-receivePacketFromServer (Client c) =
+receivePacketFromServer (Client c _) =
     alloca $ \sequenceNumPtr ->
     alloca $ \pktSzPtr -> do
         packetMem <- c'netcode_client_receive_packet c pktSzPtr sequenceNumPtr
@@ -275,7 +394,7 @@ receivePacketFromServer (Client c) =
                        <*> newForeignPtr packetMem (c'netcode_client_free_packet c (castPtr packetMem))
 
 getClientPort :: Client -> IO Word16
-getClientPort (Client c) = c'netcode_client_get_port c
+getClientPort (Client c _) = c'netcode_client_get_port c
 
 newtype Server = Server (Ptr C'netcode_server_t) deriving (Show)
 newtype ServerConfig = 
