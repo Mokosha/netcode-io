@@ -31,7 +31,9 @@ module Netcode.IO (
     , updateClient
     , sendPacketFromClient
     , receivePacketFromServer
+    , nextClientPacketSequence
     , getClientPort
+    , withClientServerAddress
 
     , ClientState(..)
     , getClientState
@@ -372,12 +374,16 @@ isClientDisconnected :: Client -> IO Bool
 isClientDisconnected (Client c _) =
     (<= c'NETCODE_CLIENT_STATE_DISCONNECTED) <$> c'netcode_client_state c
 
+nextClientPacketSequence :: Client -> IO Word64
+nextClientPacketSequence (Client c _) = c'netcode_client_next_packet_sequence c
+
 sendPacketFromClient :: Client -> Int -> Ptr Word8 -> IO ()
 sendPacketFromClient (Client c _) pktSz pktMem =
     let pktSize = min c'NETCODE_MAX_PACKET_SIZE (fromIntegral pktSz)
      in do
         if pktSz > c'NETCODE_MAX_PACKET_SIZE
-            then putStrLn $ "WARNING: Sending packet that's too large: " <> show pktSz
+            then putStrLn $ 
+                "WARNING: Sending packet that's too large: " <> show pktSz
             else return ()
         c'netcode_client_send_packet c pktMem pktSize
 
@@ -386,15 +392,21 @@ receivePacketFromServer (Client c _) =
     alloca $ \sequenceNumPtr ->
     alloca $ \pktSzPtr -> do
         packetMem <- c'netcode_client_receive_packet c pktSzPtr sequenceNumPtr
+        let finalizer = c'netcode_client_free_packet c (castPtr packetMem)
         if packetMem == nullPtr
             then return Nothing
             else fmap Just $
                 Packet <$> peek sequenceNumPtr
                        <*> (fromIntegral <$> peek pktSzPtr)
-                       <*> newForeignPtr packetMem (c'netcode_client_free_packet c (castPtr packetMem))
+                       <*> newForeignPtr packetMem finalizer
 
 getClientPort :: Client -> IO Word16
 getClientPort (Client c _) = c'netcode_client_get_port c
+
+-- Note, the address here shouldn't outlive the client.
+withClientServerAddress :: Client -> (Address -> IO a) -> IO a
+withClientServerAddress (Client c _) fn =
+    Address <$> newForeignPtr_ (c'netcode_client_server_address c) >>= fn
 
 newtype Server = Server (Ptr C'netcode_server_t) deriving (Show)
 newtype ServerConfig = 
