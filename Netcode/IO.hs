@@ -238,12 +238,9 @@ data Client = Client
   } deriving (Show)
 
 data ClientCallbacks = ClientCallbacks
-  { clientStateChange
-      :: FunPtr (Ptr () -> CInt -> CInt -> IO ())
-  , clientSendPacketOverride
-      :: FunPtr (Ptr () -> Ptr C'netcode_address_t -> Ptr Word8 -> CInt -> IO ())
-  , clientReceivePacketOverride
-      :: FunPtr (Ptr () -> Ptr C'netcode_address_t -> Ptr Word8 -> CInt -> IO CInt)
+  { clientStateChange           :: C'state_change_callback_t
+  , clientSendPacketOverride    :: C'send_packet_override_t
+  , clientReceivePacketOverride :: C'receive_packet_override_t
   } deriving (Show)
 
 defaultClientCallbacks :: ClientCallbacks

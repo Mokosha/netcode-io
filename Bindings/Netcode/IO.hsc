@@ -73,22 +73,25 @@ import Prelude                ( IO, Eq, Show, Num
 #opaque_t netcode_client_t
 #opaque_t netcode_server_t
 
+#callback_t allocate_function_t, Ptr () -> Word64 -> IO (Ptr ())
+#callback_t free_function_t, Ptr () -> Ptr () -> IO ()
 #callback_t state_change_callback_t, Ptr () -> CInt -> CInt -> IO ()
+#callback_t connect_disconnect_callback_t, Ptr () -> CInt -> CInt -> IO ()
 #callback_t send_loopback_packet_callback_t, Ptr () -> CInt -> Ptr Word8 -> CInt -> Word64 -> IO ()
 #callback_t send_packet_override_t, Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO ()
 #callback_t receive_packet_override_t, Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO CInt
 
 #starttype struct netcode_client_config_t
 #field allocator_context,             Ptr ()
-#field allocate_function,             FunPtr (Ptr () -> Word64 -> IO (Ptr ()))
-#field free_function,                 FunPtr (Ptr () -> Ptr () -> IO ())
+#field allocate_function,             <allocate_function_t>
+#field free_function,                 <free_function_t>
 #field network_simulator,             Ptr <netcode_network_simulator_t>
 #field callback_context,              Ptr ()
-#field state_change_callback,         FunPtr (Ptr () -> CInt -> CInt -> IO ())
-#field send_loopback_packet_callback, FunPtr (Ptr () -> CInt -> Ptr Word8 -> CInt -> Word64 -> IO ())
+#field state_change_callback,         <state_change_callback_t>
+#field send_loopback_packet_callback, <send_loopback_packet_callback_t>
 #field override_send_and_receive,     CInt
-#field send_packet_override,          FunPtr (Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO ())
-#field receive_packet_override,       FunPtr (Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO CInt)
+#field send_packet_override,          <send_packet_override_t>
+#field receive_packet_override,       <receive_packet_override_t>
 #stoptype
 
 #ccall netcode_default_client_config, Ptr <netcode_client_config_t> -> IO ()
@@ -117,15 +120,15 @@ import Prelude                ( IO, Eq, Show, Num
 #field       protocol_id,                   Word64
 #array_field private_key,                   Word8
 #field       allocator_context,             Ptr ()
-#field       allocate_function,             FunPtr (Ptr () -> Word64 -> IO (Ptr ()))
-#field       free_function,                 FunPtr (Ptr () -> Ptr () -> IO ())
+#field       allocate_function,             <allocate_function_t>
+#field       free_function,                 <free_function_t>
 #field       network_simulator,             Ptr <netcode_network_simulator_t>
 #field       callback_context,              Ptr ()
-#field       connect_disconnect_callback,   FunPtr (Ptr () -> CInt -> CInt -> IO ())
-#field       send_loopback_packet_callback, FunPtr (Ptr () -> CInt -> Ptr Word8 -> CInt -> Word64 -> IO ())
+#field       connect_disconnect_callback,   <connect_disconnect_callback_t>
+#field       send_loopback_packet_callback, <send_loopback_packet_callback_t>
 #field       override_send_and_receive,     CInt
-#field       send_packet_override,          FunPtr (Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO ())
-#field       receive_packet_override,       FunPtr (Ptr () -> Ptr <netcode_address_t> -> Ptr Word8 -> CInt -> IO CInt)
+#field       send_packet_override,          <send_packet_override_t>
+#field       receive_packet_override,       <receive_packet_override_t>
 #stoptype
 
 #ccall netcode_default_server_config, Ptr <netcode_server_config_t> -> IO ()
