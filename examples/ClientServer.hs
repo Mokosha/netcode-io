@@ -86,7 +86,7 @@ main = do
             withArrayLen [0..(Netcode.IO.maximumPacketSize - 1)] $
             Netcode.IO.sendPacketFromClient client
 
-        clientConnected <- Netcode.IO.isClientConnected server 0
+        clientConnected <- Netcode.IO.clientConnectedAtIndex server 0
         when clientConnected $
             withArrayLen [0..(Netcode.IO.maximumPacketSize - 1)] $
             Netcode.IO.sendPacketFromServer server 0
@@ -119,7 +119,7 @@ main = do
         numServerPackets <- readIORef numServerPacketsReceived
         if (numClientPackets >= 10 && numServerPackets >= 10)
             then do
-                conn <- Netcode.IO.isClientConnected server 0
+                conn <- Netcode.IO.clientConnectedAtIndex server 0
                 when conn $ do
                     putStrLn "client and server successfully exchanged packets"
                     Netcode.IO.disconnectClientFromServer server 0

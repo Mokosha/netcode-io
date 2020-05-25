@@ -56,7 +56,7 @@ main = do
     quitResult <- try $ catchUserInterrupt $ forM_ [0.0, 0.016667 ..] $ \time -> do
         Netcode.IO.updateServer server time
 
-        clientConnected <- Netcode.IO.isClientConnected server 0
+        clientConnected <- Netcode.IO.clientConnectedAtIndex server 0
         when clientConnected $
             withArrayLen [0..(Netcode.IO.maximumPacketSize - 1)] $
             Netcode.IO.sendPacketFromServer server 0

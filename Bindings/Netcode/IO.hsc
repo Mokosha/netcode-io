@@ -113,7 +113,7 @@ import Prelude                ( IO, Eq, Show, Num
 #ccall netcode_client_loopback, Ptr <netcode_client_t> -> IO CInt
 #ccall netcode_client_process_loopback_packet, Ptr <netcode_client_t> -> Ptr Word8 -> CInt -> Word64 -> IO ()
 #ccall netcode_client_get_port, Ptr <netcode_client_t> -> IO Word16
-#ccall netcode_client_server_address, Ptr <netcode_client_t> -> Ptr <netcode_address_t>
+#ccall netcode_client_server_address, Ptr <netcode_client_t> -> IO (Ptr <netcode_address_t>)
 #ccall netcode_generate_connect_token, CInt -> Ptr CString -> Ptr CString -> CInt -> CInt -> Word64 -> Word64 -> Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> IO CInt
 
 #starttype struct netcode_server_config_t

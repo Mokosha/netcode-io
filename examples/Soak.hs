@@ -167,7 +167,7 @@ iterateSoak ints sr t = do
             Netcode.destroyServer s
             return $ fromJust $ deactivate serverID ss
 
-    servers'' <- filterM (Netcode.serverIsFull . snd) (active servers)
+    servers'' <- filterM (Netcode.isServerFull . snd) (active servers)
              >>= filterRand ints 10000
              >>= foldM killServer servers'
 
@@ -191,19 +191,19 @@ iterateSoak ints sr t = do
     forM_ servers'' $ \s -> do
         _ <- getNextInt ints
         whenRandMod ints 10 $
-            whenM (not <$> Netcode.serverIsRunning s) $ do
+            whenM (not <$> Netcode.isServerRunning s) $ do
                 numClients <- (`mod` Netcode.maxNumClients) <$> getNextInt ints
                 Netcode.startServer s (1 + numClients)
 
         maxClients <- Netcode.maxClientsForServer s
         whenRandMod ints 1000 $
             whenM ((== maxClients) <$> Netcode.numConnectedClients s) $
-            whenM (Netcode.serverIsRunning s) $
+            whenM (Netcode.isServerRunning s) $
             Netcode.stopServer s
 
-        whenM (Netcode.serverIsRunning s) $ do
+        whenM (Netcode.isServerRunning s) $ do
             forM_ [0..(maxClients - 1)] $ \clientIndex ->
-                whenM (Netcode.isClientConnected s clientIndex) $ do
+                whenM (Netcode.clientConnectedAtIndex s clientIndex) $ do
                     pktSz <-
                         ((+ 1) . (`mod` Netcode.maximumPacketSize)) <$>
                         getNextInt ints
@@ -211,7 +211,7 @@ iterateSoak ints sr t = do
                         Netcode.sendPacketFromServer s clientIndex
 
             forM_ [0..(maxClients - 1)] $ \clientIndex ->
-                whenM (Netcode.isClientConnected s clientIndex) $
+                whenM (Netcode.clientConnectedAtIndex s clientIndex) $
                 untilM $ Netcode.receivePacketFromClient s clientIndex
                      >>= decodePacket
 
@@ -226,7 +226,7 @@ iterateSoak ints sr t = do
                      (replicate Netcode.maximumUserDataSize $ getNextInt ints)
 
             connectServers <-
-                filterM (Netcode.serverIsRunning . snd) (active servers'')
+                filterM (Netcode.isServerRunning . snd) (active servers'')
 
             let maxServers = Netcode.maximumServersPerConnect
                 mkAddrPair i = 

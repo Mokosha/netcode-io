@@ -57,15 +57,21 @@ module Netcode.IO (
     , maxNumClients
     , stopServer
     , updateServer
-    , isClientConnected
+    , clientConnectedAtIndex
+    , clientIdAtIndex
+    , withClientAddressAtIndex
+    , withClientUserDataAtIndex
+    , clientUserDataAtIndex
     , maxClientsForServer
     , numConnectedClients
-    , serverIsRunning
-    , serverIsFull
+    , isServerRunning
+    , isServerFull
     , getServerPort
     , sendPacketFromServer
     , disconnectClientFromServer
+    , disconnectAllClientsFromServer
     , receivePacketFromClient
+    , nextServerPacketSequence
 
     , sleep
 
@@ -87,7 +93,7 @@ import Foreign.ForeignPtr    ( ForeignPtr, newForeignPtr_, mallocForeignPtr
                              , mallocForeignPtrBytes, withForeignPtr
                              )
 import Foreign.Marshal.Alloc (alloca, allocaBytes)
-import Foreign.Marshal.Array (allocaArray, pokeArray)
+import Foreign.Marshal.Array (allocaArray, pokeArray, peekArray)
 import Foreign.Ptr           ( Ptr, nullPtr, castPtr
                              , FunPtr, nullFunPtr, freeHaskellFunPtr
                              )
@@ -420,8 +426,9 @@ getClientPort (Client c _) = c'netcode_client_get_port c
 
 -- Note, the address here shouldn't outlive the client.
 withClientServerAddress :: Client -> (Address -> IO a) -> IO a
-withClientServerAddress (Client c _) fn =
-    Address <$> newForeignPtr_ (c'netcode_client_server_address c) >>= fn
+withClientServerAddress (Client c _) fn = do
+    aptr <- c'netcode_client_server_address c
+    Address <$> newForeignPtr_ aptr >>= fn
 
 data Server = Server 
   { serverPtr :: Ptr C'netcode_server_t
@@ -564,9 +571,26 @@ destroyServer (Server s cbs) = do
 updateServer :: Server -> Double -> IO ()
 updateServer (Server s _) = c'netcode_server_update s . CDouble
 
-isClientConnected :: Server -> Int -> IO Bool
-isClientConnected (Server s _) =
+clientConnectedAtIndex :: Server -> Int -> IO Bool
+clientConnectedAtIndex (Server s _) =
     fmap (/= 0) . c'netcode_server_client_connected s . fromIntegral
+
+clientIdAtIndex :: Server -> Int -> IO Word64
+clientIdAtIndex (Server s _) = c'netcode_server_client_id s . fromIntegral
+
+-- Note, the address here shouldn't outlive the connected client.
+withClientAddressAtIndex :: Server -> Int -> (Address -> IO a) -> IO a
+withClientAddressAtIndex (Server s _) cidx fn = do
+    aptr <- c'netcode_server_client_address s (fromIntegral cidx)
+    Address <$> newForeignPtr_ aptr >>= fn
+
+withClientUserDataAtIndex :: Server -> Int -> (Ptr () -> IO a) -> IO a
+withClientUserDataAtIndex (Server s _) cidx fn =
+    c'netcode_server_client_user_data s (fromIntegral cidx) >>= fn
+
+clientUserDataAtIndex :: Server -> Int -> IO [Word8]
+clientUserDataAtIndex s i = withClientUserDataAtIndex s i $
+    peekArray c'NETCODE_USER_DATA_BYTES . castPtr
 
 maxClientsForServer :: Server -> IO Int
 maxClientsForServer (Server s _) =
@@ -576,11 +600,11 @@ numConnectedClients :: Server -> IO Int
 numConnectedClients (Server s _) =
     fromIntegral <$> c'netcode_server_num_connected_clients s
 
-serverIsRunning :: Server -> IO Bool
-serverIsRunning (Server s _) = (/= 0) <$> c'netcode_server_running s
+isServerRunning :: Server -> IO Bool
+isServerRunning (Server s _) = (/= 0) <$> c'netcode_server_running s
 
-serverIsFull :: Server -> IO Bool
-serverIsFull (Server s _) =
+isServerFull :: Server -> IO Bool
+isServerFull (Server s _) =
     liftA2 (==) (c'netcode_server_num_connected_clients s)
                 (c'netcode_server_max_clients s)
 
@@ -590,6 +614,14 @@ getServerPort (Server s _) = c'netcode_server_get_port s
 disconnectClientFromServer :: Server -> Int -> IO ()
 disconnectClientFromServer (Server s _) =
     c'netcode_server_disconnect_client s . fromIntegral
+
+disconnectAllClientsFromServer :: Server -> IO ()
+disconnectAllClientsFromServer (Server s _) =
+    c'netcode_server_disconnect_all_clients s
+
+nextServerPacketSequence :: Server -> Int -> IO Word64
+nextServerPacketSequence (Server s _) =
+    c'netcode_server_next_packet_sequence s . fromIntegral
 
 sendPacketFromServer :: Server -> Int -> Int -> Ptr Word8 -> IO ()
 sendPacketFromServer (Server s _) clientIdx pktSz pktMem = do
