@@ -12,13 +12,14 @@ module Netcode.IO (
     , Packet(..)
     , maximumPacketSize
 
-    , ClientConfig
     , ClientStateChangeCallback
     , SendPacketOverride
     , ReceivePacketOverride
+
+    , ClientConfig
     , defaultClientConfig
     , setClientStateChangeCallback, clearClientStateChangeCallback
-    , setSendReceiveOverrides, clearSendReceiveOverrides
+    , setClientSendReceiveOverrides, clearClientSendReceiveOverrides
 
     , Client
     , maximumUserDataSize
@@ -45,6 +46,9 @@ module Netcode.IO (
     , defaultServerConfig
     , setProtocolID
     , setPrivateKey
+    , ServerConnectDisconnectCallback
+    , setServerConnectDisconnectCallback, clearServerConnectDisconnectCallback
+    , setServerSendReceiveOverrides, clearServerSendReceiveOverrides
 
     , Server
     , createServer
@@ -72,6 +76,7 @@ module Netcode.IO (
 import Bindings.Netcode.IO
 
 import Control.Applicative   (liftA2)
+import Control.Monad         (when, unless)
 import Data.Data             (Data)
 import Data.Typeable         (Typeable)
 import Data.Word             (Word8, Word16, Word64)
@@ -102,9 +107,8 @@ freeNullFunPtr x
 initialize :: IO ()
 initialize = do
     result <- c'netcode_init
-    if result == c'NETCODE_OK
-        then return ()
-        else fail "Failed to initialize netcode.io"
+    when (result == c'NETCODE_OK) $ fail "Failed to initialize netcode.io"
+    return ()
 
 terminate :: IO ()
 terminate = c'netcode_term
@@ -117,9 +121,8 @@ parseAddress addrStr = do
     address <- mallocForeignPtr
     retVal <- withForeignPtr address $ \addressPtr ->
                 withCString addrStr (`c'netcode_parse_address` addressPtr)
-    if retVal == c'NETCODE_OK
-        then return $ Address address
-        else fail "Unable to parse address"
+    unless (retVal == c'NETCODE_OK) $ fail "Unable to parse address"
+    return $ Address address
 
 addressToString :: Address -> IO String
 addressToString (Address addrPtr) =
@@ -148,6 +151,37 @@ generateClientID = alloca $ \idPtr -> do
     c'netcode_random_bytes (castPtr idPtr) $
         fromIntegral $ sizeOf (undefined :: Word64)
     peek idPtr
+
+type ClientStateChangeCallback = ClientState -> ClientState -> IO ()
+
+mkClientStateChangeCallback :: ClientStateChangeCallback
+                            -> IO C'state_change_callback_t
+mkClientStateChangeCallback cb = mk'state_change_callback_t $ \_ oldSt newSt ->
+    cb (typedClientState oldSt) (typedClientState newSt)
+
+type ServerConnectDisconnectCallback = Int -> Bool -> IO ()
+
+mkServerConnectDisconnectCallback :: ServerConnectDisconnectCallback
+                                  -> IO C'connect_disconnect_callback_t
+mkServerConnectDisconnectCallback cb = mk'connect_disconnect_callback_t $
+    \_ clientIdx connected -> cb (fromIntegral clientIdx) (connected /= 0)
+
+type SendPacketOverride = Address -> Ptr Word8 -> CInt -> IO ()
+
+mkSendPacketOverride :: SendPacketOverride -> IO C'send_packet_override_t
+mkSendPacketOverride sendFn =
+    mk'send_packet_override_t $ \_ aptr pkt pktSize -> do
+        addr <- Address <$> newForeignPtr_ aptr
+        sendFn addr pkt pktSize
+
+type ReceivePacketOverride = Address -> Ptr Word8 -> CInt -> IO CInt
+
+mkReceivePacketOverride :: ReceivePacketOverride
+                        -> IO C'receive_packet_override_t
+mkReceivePacketOverride recvFn =
+    mk'receive_packet_override_t $ \_ aptr pkt pktSize -> do
+        addr <- Address <$> newForeignPtr_ aptr
+        recvFn addr pkt pktSize
 
 newtype ConnectToken = ConnectToken (ForeignPtr Word8)
 
@@ -188,9 +222,8 @@ generateConnectToken addrs expiry timeout clientID protocolID privateKey userDat
                                                          privateKeyBytes
                                                          userDataBytes
                                                          connectTokenBytes
-                    if result == c'NETCODE_ERROR
-                        then fail "Error generating connect token"
-                        else return $ ConnectToken connectTokenPtr
+                    when (result == c'NETCODE_ERROR) $ fail "Error generating connect token"
+                    return $ ConnectToken connectTokenPtr
          in writeAddrsAndGo 0 addrs
 
 data ClientState
@@ -263,16 +296,13 @@ defaultClientConfig = ClientConfig $ \clientConfig cbs -> do
     c'netcode_default_client_config clientConfig
     return (clientConfig, cbs)
 
-type ClientStateChangeCallback = ClientState -> ClientState -> IO ()
-
 setClientStateChangeCallback :: ClientStateChangeCallback
                              -> ClientConfig -> ClientConfig
 setClientStateChangeCallback cb (ClientConfig mkConfig) =
     ClientConfig $ \configPtr' callbacks' -> do
         (configPtr, callbacks) <- mkConfig configPtr' callbacks'
         freeNullFunPtr $ clientStateChange callbacks
-        fPtr <- mk'state_change_callback_t $ \_ oldSt newSt ->
-            cb (typedClientState oldSt) (typedClientState newSt)
+        fPtr <- mkClientStateChangeCallback cb
         config <- peek configPtr
         poke configPtr $
             config { c'netcode_client_config_t'state_change_callback = fPtr }
@@ -288,25 +318,17 @@ clearClientStateChangeCallback (ClientConfig mkConfig) =
             config { c'netcode_client_config_t'state_change_callback = nullFunPtr }
         return (configPtr, callbacks { clientStateChange = nullFunPtr })
 
-type SendPacketOverride = Address -> Ptr Word8 -> CInt -> IO ()
-type ReceivePacketOverride = Address -> Ptr Word8 -> CInt -> IO CInt
-
-setSendReceiveOverrides :: SendPacketOverride
-                        -> ReceivePacketOverride
-                        -> ClientConfig -> ClientConfig
-setSendReceiveOverrides sendFn recvFn (ClientConfig mkConfig) =
+setClientSendReceiveOverrides :: SendPacketOverride
+                              -> ReceivePacketOverride
+                              -> ClientConfig -> ClientConfig
+setClientSendReceiveOverrides sendFn recvFn (ClientConfig mkConfig) =
     ClientConfig $ \configPtr' callbacks' -> do
         (configPtr, callbacks) <- mkConfig configPtr' callbacks'
         freeNullFunPtr $ clientSendPacketOverride callbacks
         freeNullFunPtr $ clientReceivePacketOverride callbacks
         config <- peek configPtr
-        sendOverride <- mk'send_packet_override_t $ \_ aptr pkt pktSize -> do
-            addr <- Address <$> newForeignPtr_ aptr
-            sendFn addr pkt pktSize
-        recvOverride <- mk'receive_packet_override_t $
-            \_ aptr pkt pktSize -> do
-                addr <- Address <$> newForeignPtr_ aptr
-                recvFn addr pkt pktSize
+        sendOverride <- mkSendPacketOverride sendFn
+        recvOverride <- mkReceivePacketOverride recvFn
         poke configPtr $ config
             { c'netcode_client_config_t'send_packet_override = sendOverride
             , c'netcode_client_config_t'receive_packet_override = recvOverride
@@ -318,8 +340,8 @@ setSendReceiveOverrides sendFn recvFn (ClientConfig mkConfig) =
               }
         return (configPtr, newcbs)
 
-clearSendReceiveOverrides :: ClientConfig -> ClientConfig
-clearSendReceiveOverrides (ClientConfig mkConfig) =
+clearClientSendReceiveOverrides :: ClientConfig -> ClientConfig
+clearClientSendReceiveOverrides (ClientConfig mkConfig) =
     ClientConfig $ \configPtr' callbacks' -> do
         (configPtr, callbacks) <- mkConfig configPtr' callbacks'
         freeNullFunPtr $ clientSendPacketOverride callbacks
@@ -343,9 +365,8 @@ createClient s (ClientConfig mkConfig) time = alloca $ \clientConfig -> do
     (config, callbacks) <- mkConfig clientConfig defaultClientCallbacks
     ptr <- withCString s $ \cs ->
         c'netcode_client_create cs config (CDouble time)
-    if ptr == nullPtr
-        then fail "Failed to create client!"
-        else return (Client ptr callbacks)
+    when (ptr == nullPtr) $ fail "Failed to create client!"
+    return (Client ptr callbacks)
 
 destroyClient :: Client -> IO ()
 destroyClient (Client c cbs) = do
@@ -375,14 +396,11 @@ nextClientPacketSequence :: Client -> IO Word64
 nextClientPacketSequence (Client c _) = c'netcode_client_next_packet_sequence c
 
 sendPacketFromClient :: Client -> Int -> Ptr Word8 -> IO ()
-sendPacketFromClient (Client c _) pktSz pktMem =
+sendPacketFromClient (Client c _) pktSz pktMem = do
     let pktSize = min c'NETCODE_MAX_PACKET_SIZE (fromIntegral pktSz)
-     in do
-        if pktSz > c'NETCODE_MAX_PACKET_SIZE
-            then putStrLn $ 
-                "WARNING: Sending packet that's too large: " <> show pktSz
-            else return ()
-        c'netcode_client_send_packet c pktMem pktSize
+    when (pktSz > c'NETCODE_MAX_PACKET_SIZE) $ putStrLn $
+        "WARNING: Sending packet that's too large: " <> show pktSz
+    c'netcode_client_send_packet c pktMem pktSize
 
 receivePacketFromServer :: Client -> IO (Maybe Packet)
 receivePacketFromServer (Client c _) =
@@ -405,103 +423,183 @@ withClientServerAddress :: Client -> (Address -> IO a) -> IO a
 withClientServerAddress (Client c _) fn =
     Address <$> newForeignPtr_ (c'netcode_client_server_address c) >>= fn
 
-newtype Server = Server (Ptr C'netcode_server_t) deriving (Show)
-newtype ServerConfig = 
-    ServerConfig (Ptr C'netcode_server_config_t ->
-                    IO (Ptr C'netcode_server_config_t))
+data Server = Server 
+  { serverPtr :: Ptr C'netcode_server_t
+  , serverCallbacks :: ServerCallbacks
+  } deriving (Show)
+
+data ServerCallbacks = ServerCallbacks
+  { serverConnectDisconnect     :: C'connect_disconnect_callback_t
+  , serverSendPacketOverride    :: C'send_packet_override_t
+  , serverReceivePacketOverride :: C'receive_packet_override_t
+  } deriving (Show)
+
+defaultServerCallbacks :: ServerCallbacks
+defaultServerCallbacks = ServerCallbacks nullFunPtr nullFunPtr nullFunPtr
+
+newtype ServerConfig = ServerConfig
+  (   Ptr C'netcode_server_config_t
+   -> ServerCallbacks
+   -> IO (Ptr C'netcode_server_config_t, ServerCallbacks)
+  )
 
 defaultServerConfig :: ServerConfig
-defaultServerConfig = ServerConfig $ \serverConfig -> do
+defaultServerConfig = ServerConfig $ \serverConfig cbs -> do
     c'netcode_default_server_config serverConfig
-    return serverConfig
+    return (serverConfig, cbs)
 
 setProtocolID :: Word64 -> ServerConfig -> ServerConfig
 setProtocolID protocolID (ServerConfig mkServerPtr) =
-    ServerConfig $ \serverConfig -> do
-        configPtr <- mkServerPtr serverConfig
+    ServerConfig $ \serverConfig cbs' -> do
+        (configPtr, cbs) <- mkServerPtr serverConfig cbs'
         config <- peek configPtr
         poke configPtr $
             config { c'netcode_server_config_t'protocol_id = protocolID }
-        return configPtr
+        return (configPtr, cbs)
 
 setPrivateKey :: [Word8] -> ServerConfig -> ServerConfig
 setPrivateKey key (ServerConfig mkServerPtr) =
-    ServerConfig $ \serverConfig -> do
-        configPtr <- mkServerPtr serverConfig
+    ServerConfig $ \serverConfig cbs' -> do
+        (configPtr, cbs) <- mkServerPtr serverConfig cbs'
         config <- peek configPtr
         poke configPtr $    
             config {
                 c'netcode_server_config_t'private_key = 
                     take c'NETCODE_KEY_BYTES (key <> repeat 0)
             }
-        return configPtr
+        return (configPtr, cbs)
+
+setServerConnectDisconnectCallback :: ServerConnectDisconnectCallback
+                                   -> ServerConfig -> ServerConfig
+setServerConnectDisconnectCallback cb (ServerConfig mkConfig) =
+    ServerConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ serverConnectDisconnect callbacks
+        fPtr <- mkServerConnectDisconnectCallback cb
+        config <- peek configPtr
+        poke configPtr $ config
+            { c'netcode_server_config_t'connect_disconnect_callback = fPtr
+            }
+        return (configPtr, callbacks { serverConnectDisconnect = fPtr })
+
+clearServerConnectDisconnectCallback :: ServerConfig -> ServerConfig
+clearServerConnectDisconnectCallback (ServerConfig mkConfig) =
+    ServerConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ serverConnectDisconnect callbacks
+        config <- peek configPtr
+        poke configPtr $ config
+            { c'netcode_server_config_t'connect_disconnect_callback = nullFunPtr
+            }
+        return (configPtr, callbacks { serverConnectDisconnect = nullFunPtr })
+
+setServerSendReceiveOverrides :: SendPacketOverride
+                              -> ReceivePacketOverride
+                              -> ServerConfig -> ServerConfig
+setServerSendReceiveOverrides sendFn recvFn (ServerConfig mkConfig) =
+    ServerConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ serverSendPacketOverride callbacks
+        freeNullFunPtr $ serverReceivePacketOverride callbacks
+        config <- peek configPtr
+        sendOverride <- mkSendPacketOverride sendFn
+        recvOverride <- mkReceivePacketOverride recvFn
+        poke configPtr $ config
+            { c'netcode_server_config_t'send_packet_override = sendOverride
+            , c'netcode_server_config_t'receive_packet_override = recvOverride
+            , c'netcode_server_config_t'override_send_and_receive = 1
+            }
+        let newcbs = callbacks
+              { serverSendPacketOverride = sendOverride
+              , serverReceivePacketOverride = recvOverride
+              }
+        return (configPtr, newcbs)
+
+clearServerSendReceiveOverrides :: ServerConfig -> ServerConfig
+clearServerSendReceiveOverrides (ServerConfig mkConfig) =
+    ServerConfig $ \configPtr' callbacks' -> do
+        (configPtr, callbacks) <- mkConfig configPtr' callbacks'
+        freeNullFunPtr $ serverSendPacketOverride callbacks
+        freeNullFunPtr $ serverReceivePacketOverride callbacks
+        config <- peek configPtr
+        poke configPtr $ config
+            { c'netcode_server_config_t'send_packet_override = nullFunPtr
+            , c'netcode_server_config_t'receive_packet_override = nullFunPtr
+            , c'netcode_server_config_t'override_send_and_receive = 0
+            }
+        let newcbs = callbacks
+              { serverSendPacketOverride = nullFunPtr
+              , serverReceivePacketOverride = nullFunPtr
+              }
+        return (configPtr, newcbs)
 
 -- | Creates a server at the given address using the provided config. Throws an
 -- IOException on failure.
 createServer :: String -> ServerConfig -> Double -> IO Server
 createServer s (ServerConfig mkConfig) time = alloca $ \serverConfig -> do
-    config <- mkConfig serverConfig
-    serverPtr <- withCString s (\cs -> c'netcode_server_create cs config (CDouble time))
-    if serverPtr == nullPtr
-        then fail "Failed to create server!"
-        else return (Server serverPtr)
+    (config, cbs) <- mkConfig serverConfig defaultServerCallbacks
+    ptr <- withCString s (\cs -> c'netcode_server_create cs config (CDouble time))
+    when (ptr == nullPtr) $ fail "Failed to create server!"
+    return (Server ptr cbs)
 
 -- | Starts the server and specifies the maximum number of clients that can
 -- connect.
 startServer :: Server -> Int -> IO ()
-startServer (Server s) = c'netcode_server_start s . fromIntegral
+startServer (Server s _) = c'netcode_server_start s . fromIntegral
 
 maxNumClients :: Num a => a
 maxNumClients = c'NETCODE_MAX_CLIENTS
 
 -- | Stops the server.
 stopServer :: Server -> IO ()
-stopServer (Server s) = c'netcode_server_stop s
+stopServer (Server s _) = c'netcode_server_stop s
 
 destroyServer :: Server -> IO ()
-destroyServer (Server s) = c'netcode_server_destroy s        
+destroyServer (Server s cbs) = do
+    c'netcode_server_destroy s
+    freeNullFunPtr $ serverConnectDisconnect cbs
+    freeNullFunPtr $ serverSendPacketOverride cbs
+    freeNullFunPtr $ serverReceivePacketOverride cbs
 
 updateServer :: Server -> Double -> IO ()
-updateServer (Server s) = c'netcode_server_update s . CDouble
+updateServer (Server s _) = c'netcode_server_update s . CDouble
 
 isClientConnected :: Server -> Int -> IO Bool
-isClientConnected (Server s) =
+isClientConnected (Server s _) =
     fmap (/= 0) . c'netcode_server_client_connected s . fromIntegral
 
 maxClientsForServer :: Server -> IO Int
-maxClientsForServer (Server s) =
+maxClientsForServer (Server s _) =
     fromIntegral <$> c'netcode_server_max_clients s
 
 numConnectedClients :: Server -> IO Int
-numConnectedClients (Server s) =
+numConnectedClients (Server s _) =
     fromIntegral <$> c'netcode_server_num_connected_clients s
 
 serverIsRunning :: Server -> IO Bool
-serverIsRunning (Server s) = (/= 0) <$> c'netcode_server_running s
+serverIsRunning (Server s _) = (/= 0) <$> c'netcode_server_running s
 
 serverIsFull :: Server -> IO Bool
-serverIsFull (Server s) =
+serverIsFull (Server s _) =
     liftA2 (==) (c'netcode_server_num_connected_clients s)
                 (c'netcode_server_max_clients s)
 
 getServerPort :: Server -> IO Word16
-getServerPort (Server s) = c'netcode_server_get_port s
+getServerPort (Server s _) = c'netcode_server_get_port s
 
 disconnectClientFromServer :: Server -> Int -> IO ()
-disconnectClientFromServer (Server s) =
+disconnectClientFromServer (Server s _) =
     c'netcode_server_disconnect_client s . fromIntegral
 
 sendPacketFromServer :: Server -> Int -> Int -> Ptr Word8 -> IO ()
-sendPacketFromServer (Server s) clientIdx pktSz pktMem =
+sendPacketFromServer (Server s _) clientIdx pktSz pktMem = do
     let pktSize = min c'NETCODE_MAX_PACKET_SIZE (fromIntegral pktSz)
-     in do
-        if pktSz > c'NETCODE_MAX_PACKET_SIZE
-            then putStrLn $ "WARNING: Sending packet that's too large: " <> show pktSz
-            else return ()
-        c'netcode_server_send_packet s (fromIntegral clientIdx) pktMem pktSize
+    when (pktSz > c'NETCODE_MAX_PACKET_SIZE) $ putStrLn $
+            "WARNING: Sending packet that's too large: " <> show pktSz
+    c'netcode_server_send_packet s (fromIntegral clientIdx) pktMem pktSize
 
 receivePacketFromClient :: Server -> Int -> IO (Maybe Packet)
-receivePacketFromClient (Server s) clientIdx =
+receivePacketFromClient (Server s _) clientIdx =
     alloca $ \sequenceNumPtr ->
     alloca $ \pktSzPtr -> do
         packetMem <- c'netcode_server_receive_packet s (fromIntegral clientIdx) pktSzPtr sequenceNumPtr
