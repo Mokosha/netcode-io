@@ -35,7 +35,11 @@ library
 
   exposed-modules:     Bindings.Netcode.IO
                      , Netcode.IO
-  -- other-modules:
+  other-modules:       Netcode.IO.Server
+                     , Netcode.IO.Client
+                     , Netcode.IO.Address
+                     , Netcode.IO.Packet
+                     , Netcode.IO.Callbacks
   -- other-extensions:
   build-tools:         hsc2hs
   build-depends:       base >= 4.12
