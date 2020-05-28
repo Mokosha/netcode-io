@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Netcode.IO.Client (
       ClientConfig
     , defaultClientConfig
@@ -31,6 +33,8 @@ module Netcode.IO.Client (
 --------------------------------------------------------------------------------
 
 import Control.Monad         (when)
+import Data.Data             (Data)
+import Data.Typeable         (Typeable)
 import Data.Word             (Word8, Word16, Word64)
 import Foreign.C.String      (withCString)
 import Foreign.C.Types       (CDouble(..), CInt)
@@ -44,6 +48,7 @@ import Foreign.Ptr           ( Ptr, nullPtr, castPtr
                              , FunPtr, nullFunPtr, freeHaskellFunPtr
                              )
 import Foreign.Storable      (peek, poke, sizeOf, pokeElemOff)
+import GHC.Generics          (Generic)
 
 import Bindings.Netcode.IO
 import Netcode.IO.Address
@@ -70,7 +75,7 @@ data ClientState
     | ClientState'SendingConnectionRequest
     | ClientState'SendingConnectionResponse
     | ClientState'Connected
-    deriving (Eq, Ord, Show, Enum, Bounded)
+    deriving (Eq, Ord, Show, Enum, Bounded, Data, Typeable, Generic)
 
 _rawClientState :: ClientState -> CInt
 _rawClientState ClientState'ConnectTokenExpired        = c'NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED
