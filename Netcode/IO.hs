@@ -74,7 +74,7 @@ module Netcode.IO (
 ) where
 --------------------------------------------------------------------------------
 
-import Control.Monad         (when)
+import Control.Monad         (unless)
 import Data.Data             (Data)
 import Data.Typeable         (Typeable)
 import Foreign.C.Types       (CDouble(..))
@@ -95,7 +95,7 @@ import Netcode.IO.Server
 initialize :: IO ()
 initialize = do
     result <- c'netcode_init
-    when (result == c'NETCODE_OK) $
+    unless (result == c'NETCODE_OK) $
       fail $ "Failed to initialize netcode.io. Result: " <> show result
     return ()
 
