@@ -45,3 +45,9 @@ On MacOS, we can install `sodium` simply by using homebrew:
 ```
 $ brew install libsodium
 ```
+
+## LICENSING
+
+IANAL, but these bindings use
+[the same license](https://github.com/networkprotocol/netcode.io/blob/master/LICENCE)
+that the original library uses, so you must comply with both.
