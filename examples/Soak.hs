@@ -172,8 +172,7 @@ iterateSoak ints sr t = do
              >>= foldM killServer servers'
 
     let mkClient cs clientID = do
-            let addr = "0.0.0.0"
-            c <- Netcode.createClient addr Netcode.defaultClientConfig t
+            c <- Netcode.createClient "0.0.0.0" Netcode.defaultClientConfig t
             putStrLn $ "created client " ++ show c
             return $ fromJust $ activate clientID c cs
 
