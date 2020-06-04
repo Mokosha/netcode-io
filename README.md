@@ -1,4 +1,4 @@
-# netcode-io
+# netcode-io [![Build Status](https://travis-ci.org/Mokosha/netcode-io.svg?branch=master)](https://travis-ci.org/Mokosha/netcode-io)
 Haskell bindings to the
 [netcode.io](https://github.com/networkprotocol/netcode.io) library
 

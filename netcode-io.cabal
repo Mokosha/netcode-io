@@ -41,6 +41,9 @@ library
     ld-options:        -static
     extra-libraries:   ws2_32
 
+  if os(linux)
+    cc-options:        -D_POSIX_C_SOURCE=199309L
+
   exposed-modules:     Bindings.Netcode.IO
                      , Netcode.IO
   other-modules:       Netcode.IO.Server
