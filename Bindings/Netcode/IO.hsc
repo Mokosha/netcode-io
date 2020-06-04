@@ -22,7 +22,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 --------------------------------------------------------------------------------
 
-#define _POSIX_C_SOURCE >= 199309L
 #include <netcode.h>
 #include <bindings.dsl.h>
 
