@@ -151,7 +151,7 @@ script:
   set -ex
   case "$BUILD" in
     stack)
-      stack --no-terminal $ARGS build --bench --no-run-benchmarks --haddock --no-haddock-deps
+      stack --no-terminal $ARGS build --bench --no-run-benchmarks --haddock --no-haddock-deps --flag netcode-io:examples
       stack exec netcode-io-clientserver
       ;;
     cabal)
