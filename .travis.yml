@@ -152,7 +152,7 @@ script:
   case "$BUILD" in
     stack)
       stack --no-terminal $ARGS build --bench --no-run-benchmarks --haddock --no-haddock-deps
-      stack exec netcode-io-soak -- 100
+      stack exec netcode-io-clientserver
       ;;
     cabal)
       cabal install --force-reinstalls --ghc-options=-O0 --reorder-goals --max-backjumps=-1 $CABALARGS $PACKAGES
