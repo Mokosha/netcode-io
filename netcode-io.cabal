@@ -1,6 +1,6 @@
 cabal-version:       >= 1.10
 name:                netcode-io
-version:             0.0.1
+version:             0.0.2
 synopsis:            Bindings to the low-level netcode.io library.
 description:         Bindings to the low-level netcode.io library, which come
                      in two flavors: c-level bindings and a high-level
