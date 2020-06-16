@@ -5,7 +5,10 @@ Haskell bindings to the
 ## Development
 
 These bindings were developed using `stack` in the "usual" way. We expect
-that anyone building from source to use the same workflow.
+that anyone building from source to use the same workflow. The only major
+dependency is on the `sodium` library. `netcode-io` uses at least version
+`1.0.16`. Below are various ways for integrating this into your Haskell
+build ecosystem.
 
 ### Windows
 
@@ -44,6 +47,14 @@ On MacOS, we can install `sodium` simply by using homebrew:
 
 ```
 $ brew install libsodium
+```
+
+### Linux
+
+On Linux, it depends on your package manager, but if you're using Ubuntu Bionic (18.04) or later:
+
+```
+$ sudo apt-get install libsodium-dev
 ```
 
 ## LICENSING
