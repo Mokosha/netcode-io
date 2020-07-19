@@ -21,6 +21,9 @@ copyright:           Pavel Krajcevski, 2020
 category:            Network
 build-type:          Simple
 extra-source-files:  README.md
+                  ,  netcode.io/LICENCE
+                  ,  netcode.io/README.md
+                  ,  netcode.io/STANDARD.md
                   ,  netcode.io/netcode.h
                   ,  netcode.io/netcode.c
 
