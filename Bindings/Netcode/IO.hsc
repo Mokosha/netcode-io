@@ -165,7 +165,7 @@ import Prelude                ( IO, Eq, Show, Num
 #ccall netcode_server_disconnect_all_clients, Ptr <netcode_server_t> -> IO ()
 #ccall netcode_server_next_packet_sequence, Ptr <netcode_server_t> -> CInt -> IO Word64
 #ccall netcode_server_send_packet, Ptr <netcode_server_t> -> CInt -> Ptr Word8 -> CInt -> IO ()
-#ccall netcode_server_receive_packet, Ptr <netcode_server_t> -> CInt -> Ptr Int -> Ptr Word64 -> IO (Ptr Word8)
+#ccall netcode_server_receive_packet, Ptr <netcode_server_t> -> CInt -> Ptr CInt -> Ptr Word64 -> IO (Ptr Word8)
 #ccall netcode_server_free_packet, Ptr <netcode_server_t> -> Ptr () -> IO ()
 #ccall netcode_server_num_connected_clients, Ptr <netcode_server_t> -> IO CInt
 #ccall netcode_server_client_user_data, Ptr <netcode_server_t> -> CInt -> IO (Ptr ())
