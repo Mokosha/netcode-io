@@ -95,13 +95,13 @@ gPacketData :: [Word8]
 gPacketData = [0..(Netcode.maximumPacketSize - 1)]
 
 gMaxNumClients :: Int
-gMaxNumClients = 1024
+gMaxNumClients = 64
 
 gMaxNumServers :: Int
-gMaxNumServers = 64
+gMaxNumServers = 2
 
 gServerBasePort :: Int
-gServerBasePort = 40000
+gServerBasePort = 20000
 
 gConnectTokenExpiry :: Int
 gConnectTokenExpiry = 30
