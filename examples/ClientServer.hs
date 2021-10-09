@@ -38,14 +38,13 @@ main = do
     putStrLn "[client/server]"
     client <- Netcode.IO.createClient "::" Netcode.IO.defaultClientConfig 0.0
 
-    let serverAddrNoPort = "[::1]:00000"
+    let serverAddr = "[::1]:40000"
         serverConfig =
             Netcode.IO.setPrivateKey gPrivateKey $
             Netcode.IO.setProtocolID gProtocolID $
             Netcode.IO.defaultServerConfig
-    server <- Netcode.IO.createServer serverAddrNoPort serverConfig 0.0
+    server <- Netcode.IO.createServer serverAddr serverConfig 0.0
 
-    serverAddr <- ("[::1]:" <>) . show <$> Netcode.IO.getServerPort server
     Netcode.IO.startServer server 1
 
     -- This is expected to be performed on an HTTP server
